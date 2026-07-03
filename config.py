@@ -38,6 +38,7 @@ MAC_RED = "#E8827A"
 MAC_RED_HOVER = "#EE9C95"
 MAC_BORDER = "#d2d2d7"
 MAC_DISABLED_TEXT = "#aeaeb2"
+MIC_GREEN = "#34C759"
 
 # --- Fonts ---
 FONT_FAMILY = ".AppleSystemUIFont"
@@ -49,8 +50,11 @@ app_state = {
     "main_task": None,
     "session_thread": None,
     "quit_event": None,
+    "restart_event": None,
     "do_pause": None,
     "do_resume": None,
     "monitor_volume": MONITOR_VOLUME,
     "monitor_volume_lock": threading.Lock(),
+    "audio_level": 0.0,
+    "audio_level_lock": threading.Lock(),
 }

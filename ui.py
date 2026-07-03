@@ -183,6 +183,77 @@ class MacSlider:
 
 
 # ---------------------------------------------------------------------------
+# Microphone audio level indicator
+# ---------------------------------------------------------------------------
+
+class MicLevelIndicator:
+    """Gray bars that fill with green based on mic audio level."""
+
+    N_BARS = 14
+    BAR_W = 6
+    BAR_GAP = 3
+    PAD_TOP = 6
+    PAD_BOT = 6
+
+    def __init__(self, parent, canvas_width=300):
+        self.frame = tk.Frame(parent, bg=config.MAC_BG)
+        self.canvas = tk.Canvas(
+            self.frame, width=canvas_width, height=28,
+            bg=config.MAC_BG, highlightthickness=0,
+        )
+        self.canvas.pack()
+
+        total_w = self.N_BARS * self.BAR_W + (self.N_BARS - 1) * self.BAR_GAP
+        start_x = (canvas_width - total_w) / 2
+        h = 28
+        self.bar_top = self.PAD_TOP
+        self.bar_bot = h - self.PAD_BOT
+        self.bar_max_h = self.bar_bot - self.bar_top
+
+        self._bg_bars = []
+        self._fg_bars = []
+
+        for i in range(self.N_BARS):
+            x1 = start_x + i * (self.BAR_W + self.BAR_GAP)
+            x2 = x1 + self.BAR_W
+
+            # Gray background bar
+            bg_id = self.canvas.create_rectangle(
+                x1, self.bar_top, x2, self.bar_bot,
+                fill=config.MAC_BORDER, outline="",
+            )
+            # Green fill bar (starts hidden)
+            fg_id = self.canvas.create_rectangle(
+                x1, self.bar_top, x2, self.bar_bot,
+                fill=config.MIC_GREEN, outline="",
+            )
+            self.canvas.coords(fg_id, 0, 0, 0, 0)
+            self._bg_bars.append(bg_id)
+            self._fg_bars.append(fg_id)
+
+        # Label
+        mid_y = (self.bar_top + self.bar_bot) // 2
+        lbl_x = start_x - 10
+        self.canvas.create_text(
+            lbl_x, mid_y, text="MIC",
+            font=(config.FONT_FAMILY, 9, "bold"),
+            fill=config.MAC_SECONDARY, anchor="e",
+        )
+
+    def set_level(self, level):
+        """Fill bars left-to-right. level 0.0..1.0."""
+        level = max(0.0, min(1.0, level))
+        n_filled = round(level * self.N_BARS)
+        for i in range(self.N_BARS):
+            fg = self._fg_bars[i]
+            if i < n_filled:
+                x1, y1, x2, y2 = self.canvas.coords(self._bg_bars[i])
+                self.canvas.coords(fg, x1, y1, x2, y2)
+            else:
+                self.canvas.coords(fg, 0, 0, 0, 0)
+
+
+# ---------------------------------------------------------------------------
 # Main GUI
 # ---------------------------------------------------------------------------
 
@@ -194,6 +265,52 @@ def create_gui():
     root.resizable(False, False)
     root.attributes("-topmost", True)
     root.configure(bg=config.MAC_BG, highlightthickness=0)
+
+    # macOS Cmd+C/V/X/A shortcuts for Entry widgets.
+    # Tk 9 Aqua on macOS maps Command to Mod1, but bind_class("Entry", ...)
+    # does not work. Per-widget binding via virtual events is the reliable way.
+
+    def _bind_entry_shortcuts(entry):
+        """Bind Cmd+A/C/V/X directly to this specific Entry widget."""
+        def _select_all(e):
+            e.widget.selection_range(0, tk.END)
+            return "break"
+        def _copy(e):
+            try:
+                text = e.widget.selection_get()
+                e.widget.clipboard_clear()
+                e.widget.clipboard_append(text)
+            except tk.TclError:
+                pass
+            return "break"
+        def _paste(e):
+            try:
+                text = e.widget.clipboard_get()
+                e.widget.insert(tk.INSERT, text)
+            except tk.TclError:
+                pass
+            return "break"
+        def _cut(e):
+            try:
+                text = e.widget.selection_get()
+                e.widget.clipboard_clear()
+                e.widget.clipboard_append(text)
+                e.widget.delete(tk.SEL_FIRST, tk.SEL_LAST)
+            except tk.TclError:
+                pass
+            return "break"
+
+        for seq, fn in [
+            ("<Mod1-Key-a>", _select_all),
+            ("<Mod1-Key-A>", _select_all),
+            ("<Mod1-Key-c>", _copy),
+            ("<Mod1-Key-C>", _copy),
+            ("<Mod1-Key-v>", _paste),
+            ("<Mod1-Key-V>", _paste),
+            ("<Mod1-Key-x>", _cut),
+            ("<Mod1-Key-X>", _cut),
+        ]:
+            entry.bind(seq, fn, add="+")
 
     status_var = tk.StringVar(value="")
 
@@ -238,12 +355,12 @@ def create_gui():
 
     key_entry = tk.Entry(
         entry_frame, textvariable=key_var, show="*",
-        font=(config.FONT_MONO, 12), fg=config.MAC_TEXT, bg=config.MAC_CARD_BG,
+        font=(config.FONT_MONO, 10), fg=config.MAC_TEXT, bg=config.MAC_CARD_BG,
         relief=tk.FLAT, insertbackground=config.MAC_ACCENT,
         highlightthickness=0, borderwidth=8,
     )
     key_entry.pack(fill=tk.X)
-
+    _bind_entry_shortcuts(key_entry)
     # Show/hide key toggle
     chk_frame = tk.Frame(key_frame, bg=config.MAC_BG)
     chk_frame.pack(anchor="w", pady=(2, 0))
@@ -275,14 +392,21 @@ def create_gui():
                                bg=config.MAC_BG, highlightthickness=0)
     btn_canvas_key.pack(fill=tk.X, pady=(16, 0))
 
+    _saving_key = False
+
     def on_save_key():
+        nonlocal _saving_key
+        if _saving_key:
+            return
         key = key_var.get().strip()
         if not key:
             key_error_var.set("Enter API key")
             return
+        _saving_key = True
         storage.save_api_key(key)
         key_error_var.set("")
         show_main_screen(key)
+        _saving_key = False
 
     _mac_button(
         btn_canvas_key, 0, 0, 340, 40, "Save & Start Translation",
@@ -307,6 +431,10 @@ def create_gui():
         bg=config.MAC_CARD_BG, padx=16, pady=10,
     )
     status_label.pack(fill=tk.X)
+
+    # --- Mic level indicator ---
+    mic_indicator = MicLevelIndicator(main_frame, canvas_width=300)
+    mic_indicator.frame.pack(fill=tk.X, pady=(0, 12))
 
     # --- Volume section ---
     vol_section = tk.Frame(main_frame, bg=config.MAC_BG)
@@ -404,6 +532,15 @@ def create_gui():
     quit_canvas.pack(pady=(0, 8))
 
     def on_closing():
+        root.attributes("-topmost", False)
+        root.iconify()  # minimize to dock instead of closing
+
+    def on_restore(_event=None):
+        root.after(50, lambda: root.attributes("-topmost", True))
+
+    root.bind("<Map>", on_restore)
+
+    def on_quit():
         set_status("Shutting down...")
         set_mac_buttons_state("disabled")
 
@@ -415,7 +552,7 @@ def create_gui():
 
     _mac_button(
         quit_canvas, 0, 0, BTN_W, BTN_H, "Quit",
-        config.MAC_RED, config.MAC_RED_HOVER, "#ffffff", on_closing,
+        config.MAC_RED, config.MAC_RED_HOVER, "#ffffff", on_quit,
         font_size=13, tags=("mac_btn", "mac_btn_text"),
     )
     _setup_mac_button_hover(quit_canvas)
@@ -478,7 +615,7 @@ def create_gui():
             justify=tk.LEFT,
         ).pack(anchor="w", pady=(0, 16))
 
-        new_key_var = tk.StringVar()
+        new_key_var = tk.StringVar(value=storage.load_api_key() or "")
         show_new_var = tk.BooleanVar(value=False)
 
         new_entry_frame = tk.Frame(frm, bg=config.MAC_CARD_BG,
@@ -488,11 +625,12 @@ def create_gui():
 
         new_entry = tk.Entry(
             new_entry_frame, textvariable=new_key_var, show="*",
-            font=(config.FONT_MONO, 12), fg=config.MAC_TEXT, bg=config.MAC_CARD_BG,
+            font=(config.FONT_MONO, 10), fg=config.MAC_TEXT, bg=config.MAC_CARD_BG,
             relief=tk.FLAT, insertbackground=config.MAC_ACCENT,
             highlightthickness=0, borderwidth=8,
         )
         new_entry.pack(fill=tk.X)
+        _bind_entry_shortcuts(new_entry)
 
         new_chk_frame = tk.Frame(frm, bg=config.MAC_BG)
         new_chk_frame.pack(anchor="w", pady=(2, 18))
@@ -523,6 +661,10 @@ def create_gui():
 
         def do_save():
             new_key = new_key_var.get().strip()
+            current_key = storage.load_api_key() or ""
+            if new_key == current_key:
+                dlg.destroy()
+                return
             dlg.destroy()
             if new_key:
                 apply_key_change(new_key)
@@ -539,6 +681,9 @@ def create_gui():
         del_canvas.pack(side=tk.LEFT)
 
         def do_clear():
+            if not storage.load_api_key():
+                dlg.destroy()
+                return
             dlg.destroy()
             apply_key_change(None)
 
@@ -552,19 +697,20 @@ def create_gui():
         new_entry.focus_set()
 
     def apply_key_change(new_key_or_none):
-        set_mac_buttons_state("disabled")
-        set_status("Restarting...")
-
-        def worker():
-            engine.stop_engine_sync()
-            if new_key_or_none is None:
+        if new_key_or_none is None:
+            # Delete key: stop engine, clear storage, show setup screen
+            set_mac_buttons_state("disabled")
+            set_status("Shutting down...")
+            def worker():
+                engine.stop_engine_sync()
                 storage.clear_api_key()
                 root.after(0, show_key_screen)
-            else:
-                storage.save_api_key(new_key_or_none)
-                root.after(0, lambda: show_main_screen(new_key_or_none))
-
-        threading.Thread(target=worker, daemon=True).start()
+            threading.Thread(target=worker, daemon=True).start()
+        else:
+            # Save new key and signal engine to restart the session
+            storage.save_api_key(new_key_or_none)
+            set_status("Restarting...")
+            engine.request_restart_sync()
 
     # ==================== Screen switching ====================
     def show_key_screen():
@@ -659,5 +805,16 @@ def create_gui():
         show_main_screen(existing_key)
     else:
         show_key_screen()
+
+    # --- Poll mic level every 80ms ---
+    def poll_mic_level():
+        with config.app_state["audio_level_lock"]:
+            level = config.app_state["audio_level"]
+        if ui_state["paused"]:
+            level = 0.0
+        mic_indicator.set_level(level)
+        root.after(80, poll_mic_level)
+
+    root.after(200, poll_mic_level)
 
     root.mainloop()
