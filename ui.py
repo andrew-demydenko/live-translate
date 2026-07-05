@@ -3,6 +3,7 @@
 import os
 import threading
 import tkinter as tk
+from tkinter import scrolledtext
 
 import config
 import storage
@@ -436,6 +437,28 @@ def create_gui():
     mic_indicator = MicLevelIndicator(main_frame, canvas_width=300)
     mic_indicator.frame.pack(fill=tk.X, pady=(0, 12))
 
+    # --- History log ---
+    history_text = scrolledtext.ScrolledText(
+        main_frame, height=6, width=40,
+        font=(config.FONT_FAMILY, 10), bg=config.MAC_CARD_BG,
+        fg=config.MAC_TEXT, highlightthickness=0, borderwidth=0,
+    )
+    history_text.pack(fill=tk.X, pady=(0, 12))
+    history_text.config(state=tk.DISABLED)
+
+    def log_message(message):
+        root.after(0, _log_message_threadsafe, message)
+
+    def _log_message_threadsafe(message):
+        history_text.config(state=tk.NORMAL)
+        history_text.insert(tk.END, message + "\n")
+        # Limit to 100 lines
+        lines = history_text.get("1.0", tk.END).splitlines()
+        if len(lines) > 100:
+            history_text.delete("1.0", f"{len(lines) - 100}.0")
+        history_text.see(tk.END)
+        history_text.config(state=tk.DISABLED)
+
     # --- Volume section ---
     vol_section = tk.Frame(main_frame, bg=config.MAC_BG)
     vol_section.pack(fill=tk.X, pady=(0, 8))
@@ -795,7 +818,7 @@ def create_gui():
         set_mac_buttons_state("normal")
         main_frame.pack(fill=tk.BOTH, expand=True)
         set_status("Connecting...")
-        engine.start_engine(api_key, set_status)
+        engine.start_engine(api_key, set_status, log_message)
 
     settings_label.bind("<Button-1>", lambda e: open_settings())
     root.protocol("WM_DELETE_WINDOW", on_closing)

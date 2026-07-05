@@ -46,7 +46,7 @@ def resample_24k_to_48k(audio_int16: np.ndarray) -> np.ndarray:
     return resampled.astype(np.int16)
 
 
-async def translation_loop(initial_api_key, set_status, quit_event: asyncio.Event):
+async def translation_loop(initial_api_key, set_status, log_message, quit_event: asyncio.Event):
     """
     Long-lived session. Audio streams live for the entire engine lifetime.
     Only the Gemini session (send/recv) is restarted when the API key changes.
@@ -219,9 +219,9 @@ async def translation_loop(initial_api_key, set_status, quit_event: asyncio.Even
                                 continue
 
                             if sc.input_transcription and sc.input_transcription.text:
-                                print(f"[IN ] {sc.input_transcription.text}")
+                                log_message(f"[IN ] {sc.input_transcription.text}")
                             if sc.output_transcription and sc.output_transcription.text:
-                                print(f"[OUT] {sc.output_transcription.text}")
+                                log_message(f"[OUT] {sc.output_transcription.text}")
 
                             if sc.model_turn and not mute_state["muted"]:
                                 for part in sc.model_turn.parts:
@@ -343,7 +343,7 @@ async def translation_loop(initial_api_key, set_status, quit_event: asyncio.Even
 
 # --- Thread-level engine control ---
 
-def run_async_loop(api_key, set_status):
+def run_async_loop(api_key, set_status, log_message):
     """Create and run the asyncio event loop in the current thread."""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -352,7 +352,7 @@ def run_async_loop(api_key, set_status):
     config.app_state["quit_event"] = quit_event
 
     config.app_state["main_task"] = loop.create_task(
-        translation_loop(api_key, set_status, quit_event)
+        translation_loop(api_key, set_status, log_message, quit_event)
     )
     try:
         loop.run_until_complete(config.app_state["main_task"])
@@ -371,7 +371,7 @@ def run_async_loop(api_key, set_status):
         config.app_state["session_thread"] = None
 
 
-def start_engine(api_key, set_status):
+def start_engine(api_key, set_status, log_message):
     """Start translation engine in a background thread."""
     # Prevent starting a new engine if one is already running.
     t = config.app_state["session_thread"]
@@ -379,7 +379,7 @@ def start_engine(api_key, set_status):
         print("Engine already running, ignoring duplicate start_engine call.")
         return
     t = threading.Thread(
-        target=run_async_loop, args=(api_key, set_status), daemon=True
+        target=run_async_loop, args=(api_key, set_status, log_message), daemon=True
     )
     config.app_state["session_thread"] = t
     t.start()
